@@ -46,6 +46,14 @@ var (
 	timeZero = time.Time{}
 )
 
+type WritesBatch []Write
+type Write struct {
+	series     Series
+	datapoint  ts.Datapoint
+	unit       xtime.Unit
+	annotation ts.Annotation
+}
+
 type newCommitLogWriterFn func(
 	flushFn flushFn,
 	opts Options,
