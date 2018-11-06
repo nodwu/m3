@@ -48,10 +48,10 @@ var (
 
 type WritesBatch []Write
 type Write struct {
-	series     Series
-	datapoint  ts.Datapoint
-	unit       xtime.Unit
-	annotation ts.Annotation
+	Series     Series
+	Datapoint  ts.Datapoint
+	Unit       xtime.Unit
+	Annotation ts.Annotation
 }
 
 type newCommitLogWriterFn func(
