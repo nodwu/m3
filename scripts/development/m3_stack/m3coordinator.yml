@@ -50,6 +50,10 @@ clusters:
       backgroundHealthCheckFailLimit: 4
       backgroundHealthCheckFailThrottleFactor: 0.5
 
+downsample:
+  gaugeElemPool:
+    size: 524288
+
 ingest:
   ingester:
     workerPoolSize: 100
