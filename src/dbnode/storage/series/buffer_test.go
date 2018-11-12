@@ -292,7 +292,7 @@ func newTestBufferBucketWithData(t *testing.T) (*dbBufferBucket, Options, []valu
 
 func TestBufferBucketMerge(t *testing.T) {
 	b, opts, expected := newTestBufferBucketWithData(t)
-	result, err := b.merge()
+	result, err := b.merge(realtimeType)
 	require.NoError(t, err)
 	assert.Equal(t, 4, result.merges)
 
@@ -338,7 +338,7 @@ func TestBufferBucketMergeNilEncoderStreams(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stream)
 
-	mergeRes, err := b.merge()
+	mergeRes, err := b.merge(realtimeType)
 	require.NoError(t, err)
 	assert.Equal(t, 1, mergeRes.merges)
 	assert.Equal(t, 1, len(b.encoders[realtimeType]))

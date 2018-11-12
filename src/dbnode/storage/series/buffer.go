@@ -223,13 +223,15 @@ func (b *dbBuffer) Tick() bufferTickResult {
 			continue
 		}
 
-		r, err := bucket.merge()
-		if err != nil {
-			log := b.opts.InstrumentOptions().Logger()
-			log.Errorf("buffer merge encode error: %v", err)
-		}
-		if r.merges > 0 {
-			res.mergedOutOfOrderBlocks++
+		for mType := 0; mType < numMetricTypes; mType++ {
+			r, err := bucket.merge(metricType(mType))
+			if err != nil {
+				log := b.opts.InstrumentOptions().Logger()
+				log.Errorf("buffer merge encode error: %v", err)
+			}
+			if r.merges > 0 {
+				res.mergedOutOfOrderBlocks++
+			}
 		}
 	}
 
@@ -450,12 +452,10 @@ func (b *dbBuffer) Flush(
 	// By virtue of calling this function, we know we are only interested in
 	// realtime writes. Out of order writes are merged and written directly
 	// by the compactor.
-	res, err := bucket.discardMerged(realtimeType)
+	block, err := bucket.discardMerged(realtimeType)
 	if err != nil {
 		return FlushOutcomeErr, err
 	}
-
-	block := res.block
 
 	stream, err := block.Stream(ctx)
 	if err != nil {
@@ -776,86 +776,128 @@ type mergeResult struct {
 	merges int
 }
 
-func (b *dbBufferBucket) merge() (mergeResult, error) {
+func (b *dbBufferBucket) merge(mType metricType) (mergeResult, error) {
+	if !b.needsMerge(mType) {
+		// Save unnecessary work
+		return mergeResult{}, nil
+	}
+
 	merges := 0
 	start := b.start
 	bopts := b.opts.DatabaseBlockOptions()
 
-	// Merge realtime and out of order writes separately
-	for mType := 0; mType < numMetricTypes; mType++ {
-		var (
-			readers = make([]xio.SegmentReader, 0, len(b.encoders[mType])+len(b.bootstrapped[mType]))
-			streams = make([]xio.SegmentReader, 0, len(b.encoders[mType]))
-			iter    = b.opts.MultiReaderIteratorPool().Get()
-			ctx     = b.opts.ContextPool().Get()
-			encoder = bopts.EncoderPool().Get()
-		)
-		encoder.Reset(start, bopts.DatabaseBlockAllocSize())
-		defer func() {
-			iter.Close()
-			ctx.Close()
-			// NB(r): Only need to close the mutable encoder streams as
-			// the context we created for reading the bootstrap blocks
-			// when closed will close those streams.
-			for _, stream := range streams {
-				stream.Finalize()
-			}
-		}()
-
-		// Rank bootstrapped blocks as data that has appeared before data that
-		// arrived locally in the buffer
-		for i := range b.bootstrapped[mType] {
-			block, err := b.bootstrapped[mType][i].Stream(ctx)
-			if err == nil && block.SegmentReader != nil {
-				merges++
-				readers = append(readers, block.SegmentReader)
-			}
+	var (
+		readers = make([]xio.SegmentReader, 0, len(b.encoders[mType])+len(b.bootstrapped[mType]))
+		streams = make([]xio.SegmentReader, 0, len(b.encoders[mType]))
+		iter    = b.opts.MultiReaderIteratorPool().Get()
+		ctx     = b.opts.ContextPool().Get()
+		encoder = bopts.EncoderPool().Get()
+	)
+	encoder.Reset(start, bopts.DatabaseBlockAllocSize())
+	defer func() {
+		iter.Close()
+		ctx.Close()
+		// NB(r): Only need to close the mutable encoder streams as
+		// the context we created for reading the bootstrap blocks
+		// when closed will close those streams.
+		for _, stream := range streams {
+			stream.Finalize()
 		}
+	}()
 
-		for i := range b.encoders[mType] {
-			if s := b.encoders[mType][i].encoder.Stream(); s != nil {
-				merges++
-				readers = append(readers, s)
-				streams = append(streams, s)
-			}
+	// Rank bootstrapped blocks as data that has appeared before data that
+	// arrived locally in the buffer
+	for i := range b.bootstrapped[mType] {
+		block, err := b.bootstrapped[mType][i].Stream(ctx)
+		if err == nil && block.SegmentReader != nil {
+			merges++
+			readers = append(readers, block.SegmentReader)
 		}
+	}
 
-		var lastWriteAt time.Time
-		iter.Reset(readers, start, b.opts.RetentionOptions().BlockSize())
-		for iter.Next() {
-			dp, unit, annotation := iter.Current()
-			if err := encoder.Encode(dp, unit, annotation); err != nil {
-				return mergeResult{}, err
-			}
-			lastWriteAt = dp.Timestamp
+	for i := range b.encoders[mType] {
+		if s := b.encoders[mType][i].encoder.Stream(); s != nil {
+			merges++
+			readers = append(readers, s)
+			streams = append(streams, s)
 		}
-		if err := iter.Err(); err != nil {
+	}
+
+	var lastWriteAt time.Time
+	iter.Reset(readers, start, b.opts.RetentionOptions().BlockSize())
+	for iter.Next() {
+		dp, unit, annotation := iter.Current()
+		if err := encoder.Encode(dp, unit, annotation); err != nil {
 			return mergeResult{}, err
 		}
-
-		b.resetEncoders(metricType(mType))
-		b.resetBootstrapped(metricType(mType))
-
-		b.encoders[mType] = append(b.encoders[mType], inOrderEncoder{
-			encoder:     encoder,
-			lastWriteAt: lastWriteAt,
-		})
+		lastWriteAt = dp.Timestamp
 	}
+	if err := iter.Err(); err != nil {
+		return mergeResult{}, err
+	}
+
+	b.resetEncoders(metricType(mType))
+	b.resetBootstrapped(metricType(mType))
+
+	b.encoders[mType] = append(b.encoders[mType], inOrderEncoder{
+		encoder:     encoder,
+		lastWriteAt: lastWriteAt,
+	})
 
 	return mergeResult{merges: merges}, nil
 }
 
-type discardMergedResult struct {
-	block  block.DatabaseBlock
-	merges int
+func (b *dbBufferBucket) needsMerge(mType metricType) bool {
+	return !(b.hasJustSingleEncoder(mType) || b.hasJustSingleBootstrappedBlock(mType))
 }
 
-func (b *dbBufferBucket) discardMerged(mType metricType) (discardMergedResult, error) {
-	mergeResult, err := b.merge()
+func (b *dbBufferBucket) hasJustSingleEncoder(mType metricType) bool {
+	return len(b.encoders[mType]) == 1 && len(b.bootstrapped[mType]) == 0
+}
+
+func (b *dbBufferBucket) encodersEmpty(mType metricType) bool {
+	return len(b.encoders[mType]) == 0 ||
+		(len(b.encoders[mType]) == 1 &&
+			b.encoders[mType][0].encoder.Len() == 0)
+}
+
+func (b *dbBufferBucket) hasJustSingleBootstrappedBlock(mType metricType) bool {
+	return b.encodersEmpty(mType) && len(b.bootstrapped[mType]) == 1
+}
+
+func (b *dbBufferBucket) discardMerged(mType metricType) (block.DatabaseBlock, error) {
+	if b.hasJustSingleEncoder(mType) {
+		// Already merged as a single encoder
+		encoder := b.encoders[mType][0].encoder
+		newBlock := b.opts.DatabaseBlockOptions().DatabaseBlockPool().Get()
+		blockSize := b.opts.RetentionOptions().BlockSize()
+		newBlock.Reset(b.start, blockSize, encoder.Discard())
+
+		// The single encoder is already discarded, no need to call resetEncoders
+		// just remove it from the list of encoders
+		b.encoders[mType] = b.encoders[mType][:0]
+		b.resetBootstrapped(mType)
+
+		return newBlock, nil
+	}
+
+	if b.hasJustSingleBootstrappedBlock(mType) {
+		// Already merged just a single bootstrapped block
+		existingBlock := b.bootstrapped[mType][0]
+
+		// Need to reset encoders but do not want to finalize the block as we
+		// are passing ownership of it to the caller
+		b.resetEncoders(mType)
+		b.bootstrapped[mType] = nil
+
+		return existingBlock, nil
+	}
+
+	_, err := b.merge(mType)
 	if err != nil {
 		b.resetEncoders(allMetricTypes)
 		b.resetBootstrapped(allMetricTypes)
-		return discardMergedResult{}, err
+		return nil, err
 	}
 
 	mergedEncoder := b.encoders[mType][0].encoder
@@ -871,7 +913,7 @@ func (b *dbBufferBucket) discardMerged(mType metricType) (discardMergedResult, e
 	b.encoders[mType] = b.encoders[mType][:0]
 	b.resetBootstrapped(mType)
 
-	return discardMergedResult{newBlock, mergeResult.merges}, nil
+	return newBlock, nil
 }
 
 func (b *dbBufferBucket) stream(ctx context.Context, mType metricType) (xio.BlockReader, error) {
@@ -885,7 +927,7 @@ func (b *dbBufferBucket) stream(ctx context.Context, mType metricType) (xio.Bloc
 
 	// We need to merge all the bootstrapped blocks / encoders into a single stream for
 	// the sake of being able to persist it to disk as a single encoded stream.
-	_, err := b.merge()
+	_, err := b.merge(mType)
 	if err != nil {
 		return xio.EmptyBlockReader, err
 	}
