@@ -335,7 +335,6 @@ func (s *dbSeries) FetchBlocksMetadata(
 		if !start.Before(t.Add(blockSize)) || !t.Before(end) {
 			continue
 		}
-		// TODO(juchan): is this option necessary now that all blocks are cached blocks?
 		if !opts.IncludeCachedBlocks {
 			// Do not include cached blocks if not specified to, this is
 			// to avoid high amounts of duplication if a significant number of
