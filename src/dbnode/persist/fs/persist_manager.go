@@ -62,9 +62,12 @@ var (
 	errPersistManagerCannotPrepareIndexNotPersisting = errors.New("persist manager cannot prepare index, not persisting")
 	errPersistManagerFileSetAlreadyExists            = errors.New("persist manager cannot prepare, fileset already exists")
 	errPersistManagerCannotDoneSnapshotNotSnapshot   = errors.New("persist manager cannot done snapshot, file set type is not snapshot")
+	errPersistManagerCannotDoneFlushNotFlush         = errors.New("persist manager cannot done flush, file set type is not flush")
 )
 
 type sleepFn func(time.Duration)
+
+type nextSnapshotMetadataFileIndexFn func(opts Options) (index int64, err error)
 
 // persistManager is responsible for persisting series segments onto local filesystem.
 // It is not thread-safe.
@@ -92,8 +95,9 @@ type persistManager struct {
 }
 
 type dataPersistManager struct {
-	writer                 DataFileSetWriter
-	snapshotMetadataWriter SnapshotMetadataFileWriter
+	writer                        DataFileSetWriter
+	nextSnapshotMetadataFileIndex nextSnapshotMetadataFileIndexFn
+	snapshotMetadataWriter        SnapshotMetadataFileWriter
 	// segmentHolder is a two-item slice that's reused to hold pointers to the
 	// head and the tail of each segment so we don't need to allocate memory
 	// and gc it shortly after.
@@ -527,31 +531,8 @@ func (pm *persistManager) DoneFlush() error {
 		return errPersistManagerNotPersisting
 	}
 
-	// Need to write out a snapshot metadata and checkpoint file in the snapshot
-	// case.
-	if pm.dataPM.fileSetType == persist.FileSetSnapshotType {
-		nextIndex, err := NextSnapshotMetadataFileIndex(pm.opts)
-		if err != nil {
-			return fmt.Errorf(
-				"error determining next snapshot metadata file index: %v", err)
-		}
-
-		var (
-			writer       = NewSnapshotMetadataWriter(pm.opts)
-			snapshotUUID = uuid.NewUUID()
-		)
-		err = writer.Write(SnapshotMetadataWriteArgs{
-			ID: SnapshotMetadataIdentifier{
-				Index: nextIndex,
-				UUID:  snapshotUUID,
-			},
-			// TODO(rartoul): Fill this in once we have the rotate API hooked
-			// into this flow.
-			CommitlogIdentifier: nil,
-		})
-		if err != nil {
-			return fmt.Errorf("error writing out snapshot metadata file: %v", err)
-		}
+	if pm.dataPM.fileSetType != persist.FileSetFlushType {
+		return errPersistManagerCannotDoneFlushNotFlush
 	}
 
 	return pm.doneShared()
@@ -572,14 +553,13 @@ func (pm *persistManager) DoneSnapshot(
 	}
 
 	// Need to write out a snapshot metadata and checkpoint file in the snapshot case.
-	nextIndex, err := NextSnapshotMetadataFileIndex(pm.opts)
+	nextIndex, err := pm.dataPM.nextSnapshotMetadataFileIndex(pm.opts)
 	if err != nil {
 		return fmt.Errorf(
 			"error determining next snapshot metadata file index: %v", err)
 	}
 
-	writer := NewSnapshotMetadataWriter(pm.opts)
-	err = writer.Write(SnapshotMetadataWriteArgs{
+	err = pm.dataPM.snapshotMetadataWriter.Write(SnapshotMetadataWriteArgs{
 		ID: SnapshotMetadataIdentifier{
 			Index: nextIndex,
 			UUID:  snapshotUUID,

@@ -28,6 +28,7 @@ import (
 	"reflect"
 
 	"github.com/golang/mock/gomock"
+	"github.com/pborman/uuid"
 )
 
 // MockManager is a mock of Manager interface
@@ -53,17 +54,17 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
-// StartDataPersist mocks base method
-func (m *MockManager) StartDataPersist() (DataFlush, error) {
-	ret := m.ctrl.Call(m, "StartDataPersist")
+// StartFlushPersist mocks base method
+func (m *MockManager) StartFlushPersist() (DataFlush, error) {
+	ret := m.ctrl.Call(m, "StartFlushPersist")
 	ret0, _ := ret[0].(DataFlush)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// StartDataPersist indicates an expected call of StartDataPersist
-func (mr *MockManagerMockRecorder) StartDataPersist() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartDataPersist", reflect.TypeOf((*MockManager)(nil).StartDataPersist))
+// StartFlushPersist indicates an expected call of StartFlushPersist
+func (mr *MockManagerMockRecorder) StartFlushPersist() *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartFlushPersist", reflect.TypeOf((*MockManager)(nil).StartFlushPersist))
 }
 
 // StartIndexPersist mocks base method
@@ -115,16 +116,28 @@ func (mr *MockDataFlushMockRecorder) PrepareData(opts interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareData", reflect.TypeOf((*MockDataFlush)(nil).PrepareData), opts)
 }
 
-// DoneData mocks base method
-func (m *MockDataFlush) DoneData() error {
-	ret := m.ctrl.Call(m, "DoneData")
+// DoneFlush mocks base method
+func (m *MockDataFlush) DoneFlush() error {
+	ret := m.ctrl.Call(m, "DoneFlush")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DoneData indicates an expected call of DoneData
-func (mr *MockDataFlushMockRecorder) DoneData() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DoneData", reflect.TypeOf((*MockDataFlush)(nil).DoneData))
+// DoneFlush indicates an expected call of DoneFlush
+func (mr *MockDataFlushMockRecorder) DoneFlush() *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DoneFlush", reflect.TypeOf((*MockDataFlush)(nil).DoneFlush))
+}
+
+// DoneSnapshot mocks base method
+func (m *MockDataFlush) DoneSnapshot(snapshotUUID uuid.UUID, commitLogIdentifier []byte) error {
+	ret := m.ctrl.Call(m, "DoneSnapshot", snapshotUUID, commitLogIdentifier)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DoneSnapshot indicates an expected call of DoneSnapshot
+func (mr *MockDataFlushMockRecorder) DoneSnapshot(snapshotUUID, commitLogIdentifier interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DoneSnapshot", reflect.TypeOf((*MockDataFlush)(nil).DoneSnapshot), snapshotUUID, commitLogIdentifier)
 }
 
 // MockIndexFlush is a mock of IndexFlush interface
