@@ -575,6 +575,11 @@ func TestNextSnapshotFileSetVolumeIndex(t *testing.T) {
 	require.NoError(t, os.MkdirAll(shardDir, 0755))
 	defer os.RemoveAll(shardDir)
 
+	index, err := NextSnapshotFileSetVolumeIndex(
+		dir, testNs1ID, shard, blockStart)
+	require.NoError(t, err)
+	require.Equal(t, 0, index)
+
 	// Check increments properly
 	curr := -1
 	for i := 0; i <= 10; i++ {

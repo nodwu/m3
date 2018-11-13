@@ -1194,6 +1194,10 @@ func NextSnapshotMetadataFileIndex(opts Options) (int64, error) {
 		return 0, err
 	}
 
+	if len(snapshotMetadataFiles) == 0 {
+		return 0, nil
+	}
+
 	lastSnapshotMetadataFile := snapshotMetadataFiles[len(snapshotMetadataFiles)-1]
 	return lastSnapshotMetadataFile.ID.Index + 1, nil
 }
