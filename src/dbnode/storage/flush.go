@@ -27,8 +27,10 @@ import (
 	"time"
 
 	"github.com/m3db/m3/src/dbnode/persist"
+	"github.com/m3db/m3/src/dbnode/persist/fs"
 	"github.com/m3db/m3/src/dbnode/retention"
 	xerrors "github.com/m3db/m3x/errors"
+	"github.com/pborman/uuid"
 
 	"github.com/uber-go/tally"
 )
@@ -164,6 +166,33 @@ func (m *flushManager) Flush(
 
 	// mark data flush finished
 	multiErr = multiErr.Add(flush.DoneData())
+
+	// Write out snapshot metadata now that we're done snapshotting.
+	fsOpts := m.opts.CommitLogOptions().FilesystemOptions()
+	nextIndex, err := fs.NextSnapshotMetadataFileIndex(fsOpts)
+	if err != nil {
+		// TODO
+		return err
+	}
+
+	// TODO: Debug logs
+	var (
+		writer       = fs.NewSnapshotMetadataWriter(fsOpts)
+		snapshotUUID = uuid.NewUUID()
+	)
+	err = writer.Write(fs.SnapshotMetadataWriteArgs{
+		ID: fs.SnapshotMetadataIdentifier{
+			Index: nextIndex,
+			UUID:  snapshotUUID,
+		},
+		// TODO(rartoul): Fill this in once we have the rotate API hooked
+		// into this flow.
+		CommitlogIdentifier: nil,
+	})
+	if err != nil {
+		// TODO
+		return err
+	}
 
 	// flush index data
 	// create index-flusher

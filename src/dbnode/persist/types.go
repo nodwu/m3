@@ -28,6 +28,7 @@ import (
 	"github.com/m3db/m3/src/dbnode/ts"
 	"github.com/m3db/m3/src/m3ninx/index/segment"
 	"github.com/m3db/m3x/ident"
+	"github.com/pborman/uuid"
 )
 
 // DataFn is a function that persists a m3db segment for a given ID.
@@ -60,7 +61,7 @@ type PreparedIndexPersist struct {
 // Manager manages the internals of persisting data onto storage layer.
 type Manager interface {
 	// StartDataPersist begins a data flush for a set of shards.
-	StartDataPersist() (DataFlush, error)
+	StartFlushPersist() (DataFlush, error)
 
 	// StartIndexPersist begins a flush for index data.
 	StartIndexPersist() (IndexFlush, error)
@@ -74,8 +75,11 @@ type DataFlush interface {
 	// preparation if any.
 	PrepareData(opts DataPrepareOptions) (PreparedDataPersist, error)
 
-	// DoneData marks the data flush as complete.
-	DoneData() error
+	// DoneFlush marks the data flush as complete.
+	DoneFlush() error
+
+	// DoneSnapshot marks the snapshot as complete.
+	DoneSnapshot(snapshotUUID uuid.UUID, commitLogIdentifier []byte) error
 }
 
 // IndexFlush is a persist flush cycle, each namespace, block combination needs

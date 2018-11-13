@@ -59,11 +59,11 @@ func TestPersistenceManagerPrepareDataFileExistsNoDelete(t *testing.T) {
 	)
 	createFile(t, checkpointFilePath, checkpointFileBuf)
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}()
 
 	prepareOpts := persist.DataPrepareOptions{
@@ -106,11 +106,11 @@ func TestPersistenceManagerPrepareDataFileExistsWithDelete(t *testing.T) {
 	)
 	createFile(t, checkpointFilePath, checkpointFileBuf)
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}()
 
 	prepareOpts := persist.DataPrepareOptions{
@@ -150,11 +150,11 @@ func TestPersistenceManagerPrepareOpenError(t *testing.T) {
 	}, m3test.IdentTransformer)
 	writer.EXPECT().Open(writerOpts).Return(expectedErr)
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}()
 
 	prepareOpts := persist.DataPrepareOptions{
@@ -198,11 +198,70 @@ func TestPersistenceManagerPrepareSuccess(t *testing.T) {
 	writer.EXPECT().WriteAll(id, tags, gomock.Any(), checksum).Return(nil)
 	writer.EXPECT().Close()
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
+	}()
+
+	now := time.Now()
+	pm.start = now
+	pm.count = 123
+	pm.bytesWritten = 100
+
+	prepareOpts := persist.DataPrepareOptions{
+		NamespaceMetadata: testNs1Metadata(t),
+		Shard:             shard,
+		BlockStart:        blockStart,
+	}
+	prepared, err := flush.PrepareData(prepareOpts)
+	defer prepared.Close()
+
+	require.Nil(t, err)
+
+	require.Nil(t, prepared.Persist(id, tags, segment, checksum))
+
+	require.True(t, pm.start.Equal(now))
+	require.Equal(t, 124, pm.count)
+	require.Equal(t, int64(104), pm.bytesWritten)
+}
+
+func TestPersistenceManagerPrepareSnapshotSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	pm, writer, _ := testDataPersistManager(t, ctrl)
+	defer os.RemoveAll(pm.filePathPrefix)
+
+	shard := uint32(0)
+	blockStart := time.Unix(1000, 0)
+	writerOpts := xtest.CmpMatcher(DataWriterOpenOptions{
+		Identifier: FileSetFileIdentifier{
+			Namespace:  testNs1ID,
+			Shard:      shard,
+			BlockStart: blockStart,
+		},
+		BlockSize: testBlockSize,
+	}, m3test.IdentTransformer)
+	writer.EXPECT().Open(writerOpts).Return(nil)
+
+	var (
+		id       = ident.StringID("foo")
+		tags     = ident.NewTags(ident.StringTag("bar", "baz"))
+		head     = checked.NewBytes([]byte{0x1, 0x2}, nil)
+		tail     = checked.NewBytes([]byte{0x3, 0x4}, nil)
+		segment  = ts.NewSegment(head, tail, ts.FinalizeNone)
+		checksum = digest.SegmentChecksum(segment)
+	)
+	writer.EXPECT().WriteAll(id, tags, gomock.Any(), checksum).Return(nil)
+	writer.EXPECT().Close()
+
+	flush, err := pm.StartSnapshotPersist()
+	require.NoError(t, err)
+
+	defer func() {
+		assert.NoError(t, flush.DoneSnapshot(nil, nil))
 	}()
 
 	now := time.Now()
@@ -432,11 +491,11 @@ func TestPersistenceManagerNoRateLimit(t *testing.T) {
 
 	writer.EXPECT().WriteAll(id, tags, pm.dataPM.segmentHolder, checksum).Return(nil).Times(2)
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}()
 
 	// prepare the flush
@@ -519,7 +578,7 @@ func TestPersistenceManagerWithRateLimit(t *testing.T) {
 		// Reset
 		slept = time.Duration(0)
 
-		flush, err := pm.StartDataPersist()
+		flush, err := pm.StartFlushPersist()
 		require.NoError(t, err)
 
 		// prepare the flush
@@ -554,7 +613,7 @@ func TestPersistenceManagerWithRateLimit(t *testing.T) {
 
 		require.NoError(t, prepared.Close())
 
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}
 }
 
@@ -568,11 +627,11 @@ func TestPersistenceManagerNamespaceSwitch(t *testing.T) {
 	shard := uint32(0)
 	blockStart := time.Unix(1000, 0)
 
-	flush, err := pm.StartDataPersist()
+	flush, err := pm.StartFlushPersist()
 	require.NoError(t, err)
 
 	defer func() {
-		assert.NoError(t, flush.DoneData())
+		assert.NoError(t, flush.DoneFlush())
 	}()
 
 	writerOpts := xtest.CmpMatcher(DataWriterOpenOptions{

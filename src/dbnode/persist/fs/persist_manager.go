@@ -38,6 +38,7 @@ import (
 	"github.com/m3db/m3x/ident"
 	"github.com/m3db/m3x/instrument"
 	xlog "github.com/m3db/m3x/log"
+	"github.com/pborman/uuid"
 
 	"github.com/uber-go/tally"
 )
@@ -60,6 +61,7 @@ var (
 	errPersistManagerCannotPrepareDataNotPersisting  = errors.New("persist manager cannot prepare data, not persisting")
 	errPersistManagerCannotPrepareIndexNotPersisting = errors.New("persist manager cannot prepare index, not persisting")
 	errPersistManagerFileSetAlreadyExists            = errors.New("persist manager cannot prepare, fileset already exists")
+	errPersistManagerCannotDoneSnapshotNotSnapshot   = errors.New("persist manager cannot done snapshot, file set type is not snapshot")
 )
 
 type sleepFn func(time.Duration)
@@ -90,11 +92,15 @@ type persistManager struct {
 }
 
 type dataPersistManager struct {
-	writer DataFileSetWriter
+	writer                 DataFileSetWriter
+	snapshotMetadataWriter SnapshotMetadataFileWriter
 	// segmentHolder is a two-item slice that's reused to hold pointers to the
 	// head and the tail of each segment so we don't need to allocate memory
 	// and gc it shortly after.
 	segmentHolder []checked.Bytes
+	// The type of files that are being persisted. Assists with decision making
+	// in the "done" phase.
+	fileSetType persist.FileSetType
 }
 
 type indexPersistManager struct {
@@ -347,8 +353,8 @@ func (pm *persistManager) DoneIndex() error {
 	return nil
 }
 
-// StartDataPersist is called by the databaseFlushManager to begin the persist process
-func (pm *persistManager) StartDataPersist() (persist.DataFlush, error) {
+// StartFlushPersist is called by the databaseFlushManager to begin the persist process.
+func (pm *persistManager) StartFlushPersist() (persist.DataFlush, error) {
 	pm.Lock()
 	defer pm.Unlock()
 
@@ -356,6 +362,21 @@ func (pm *persistManager) StartDataPersist() (persist.DataFlush, error) {
 		return nil, errPersistManagerNotIdle
 	}
 	pm.status = persistManagerPersistingData
+	pm.dataPM.fileSetType = persist.FileSetFlushType
+
+	return pm, nil
+}
+
+// StartSnapshotPersist is called by the databaseFlushManager to begin the snapshot process.
+func (pm *persistManager) StartSnapshotPersist() (persist.DataFlush, error) {
+	pm.Lock()
+	defer pm.Unlock()
+
+	if pm.status != persistManagerIdle {
+		return nil, errPersistManagerNotIdle
+	}
+	pm.status = persistManagerPersistingData
+	pm.dataPM.fileSetType = persist.FileSetSnapshotType
 
 	return pm, nil
 }
@@ -497,8 +518,8 @@ func (pm *persistManager) closeData() error {
 	return pm.dataPM.writer.Close()
 }
 
-// DoneData is called by the databaseFlushManager to finish the data persist process.
-func (pm *persistManager) DoneData() error {
+// DoneFlush is called by the databaseFlushManager to finish the data persist process.
+func (pm *persistManager) DoneFlush() error {
 	pm.Lock()
 	defer pm.Unlock()
 
@@ -506,6 +527,73 @@ func (pm *persistManager) DoneData() error {
 		return errPersistManagerNotPersisting
 	}
 
+	// Need to write out a snapshot metadata and checkpoint file in the snapshot
+	// case.
+	if pm.dataPM.fileSetType == persist.FileSetSnapshotType {
+		nextIndex, err := NextSnapshotMetadataFileIndex(pm.opts)
+		if err != nil {
+			return fmt.Errorf(
+				"error determining next snapshot metadata file index: %v", err)
+		}
+
+		var (
+			writer       = NewSnapshotMetadataWriter(pm.opts)
+			snapshotUUID = uuid.NewUUID()
+		)
+		err = writer.Write(SnapshotMetadataWriteArgs{
+			ID: SnapshotMetadataIdentifier{
+				Index: nextIndex,
+				UUID:  snapshotUUID,
+			},
+			// TODO(rartoul): Fill this in once we have the rotate API hooked
+			// into this flow.
+			CommitlogIdentifier: nil,
+		})
+		if err != nil {
+			return fmt.Errorf("error writing out snapshot metadata file: %v", err)
+		}
+	}
+
+	return pm.doneShared()
+}
+
+// DoneSnapshot is called by the databaseFlushManager to finish the data persist process.
+func (pm *persistManager) DoneSnapshot(
+	snapshotUUID uuid.UUID, commitLogIdentifier []byte) error {
+	pm.Lock()
+	defer pm.Unlock()
+
+	if pm.status != persistManagerPersistingData {
+		return errPersistManagerNotPersisting
+	}
+
+	if pm.dataPM.fileSetType != persist.FileSetSnapshotType {
+		return errPersistManagerCannotDoneSnapshotNotSnapshot
+	}
+
+	// Need to write out a snapshot metadata and checkpoint file in the snapshot case.
+	nextIndex, err := NextSnapshotMetadataFileIndex(pm.opts)
+	if err != nil {
+		return fmt.Errorf(
+			"error determining next snapshot metadata file index: %v", err)
+	}
+
+	writer := NewSnapshotMetadataWriter(pm.opts)
+	err = writer.Write(SnapshotMetadataWriteArgs{
+		ID: SnapshotMetadataIdentifier{
+			Index: nextIndex,
+			UUID:  snapshotUUID,
+		},
+		CommitlogIdentifier: commitLogIdentifier,
+	})
+	if err != nil {
+		return fmt.Errorf("error writing out snapshot metadata file: %v", err)
+	}
+
+	return pm.doneShared()
+}
+
+func (pm *persistManager) doneShared() error {
 	// Emit timing metrics
 	pm.metrics.writeDurationMs.Update(float64(pm.worked / time.Millisecond))
 	pm.metrics.throttleDurationMs.Update(float64(pm.slept / time.Millisecond))
