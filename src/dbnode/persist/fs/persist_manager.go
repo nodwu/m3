@@ -95,13 +95,16 @@ type persistManager struct {
 }
 
 type dataPersistManager struct {
+	// Injected types.
 	writer                        DataFileSetWriter
 	nextSnapshotMetadataFileIndex nextSnapshotMetadataFileIndexFn
 	snapshotMetadataWriter        SnapshotMetadataFileWriter
+
 	// segmentHolder is a two-item slice that's reused to hold pointers to the
 	// head and the tail of each segment so we don't need to allocate memory
 	// and gc it shortly after.
 	segmentHolder []checked.Bytes
+
 	// The type of files that are being persisted. Assists with decision making
 	// in the "done" phase.
 	fileSetType persist.FileSetType
