@@ -27,9 +27,8 @@ import (
 	"github.com/m3db/m3/src/aggregator/aggregator/handler/common"
 	"github.com/m3db/m3/src/aggregator/aggregator/handler/router"
 	"github.com/m3db/m3/src/aggregator/sharding"
-	"github.com/m3db/m3/src/metrics/encoding/msgpack"
+	"github.com/m3db/m3/src/metrics/encoding/protobuf"
 	"github.com/m3db/m3/src/metrics/metric/aggregated"
-	"github.com/m3db/m3/src/metrics/metric/id"
 	"github.com/m3db/m3x/clock"
 	xerrors "github.com/m3db/m3x/errors"
 	"github.com/uber-go/tally"
@@ -39,7 +38,7 @@ var (
 	errWriterClosed = errors.New("writer is closed")
 )
 
-type shardedWriterMetrics struct {
+type nonShardedWriterMetrics struct {
 	writerClosed  tally.Counter
 	encodeSuccess tally.Counter
 	encodeErrors  tally.Counter
@@ -47,10 +46,10 @@ type shardedWriterMetrics struct {
 	routeErrors   tally.Counter
 }
 
-func newShardedWriterMetrics(scope tally.Scope) shardedWriterMetrics {
+func newNonShardedWriterMetrics(scope tally.Scope) nonShardedWriterMetrics {
 	encodeScope := scope.SubScope("encode")
 	routeScope := scope.SubScope("route")
-	return shardedWriterMetrics{
+	return nonShardedWriterMetrics{
 		writerClosed:  scope.Counter("writer-closed"),
 		encodeSuccess: encodeScope.Counter("success"),
 		encodeErrors:  encodeScope.Counter("errors"),
@@ -59,26 +58,22 @@ func newShardedWriterMetrics(scope tally.Scope) shardedWriterMetrics {
 	}
 }
 
-type shardFn func(chunkedID id.ChunkedID) uint32
-type randFn func() float64
-
-// shardedWriter encodes data in a shard-aware fashion and routes them to the backend.
-// shardedWriter is not thread safe.
-type shardedWriter struct {
+// nonShardedWriter encodes data in a shard-aware fashion and routes them to the backend.
+// nonShardedWriter is not thread safe.
+type nonShardedWriter struct {
 	sharding.AggregatedSharder
 	router.Router
 
 	nowFn                    clock.NowFn
 	maxBufferSize            int
-	bufferedEncoderPool      msgpack.BufferedEncoderPool
 	encodingTimeSamplingRate float64
+	encoder                  protobuf.Encoder
 
-	closed          bool
-	rand            *rand.Rand
-	encodersByShard []msgpack.AggregatedEncoder
-	metrics         shardedWriterMetrics
-	shardFn         shardFn
-	randFn          randFn
+	closed  bool
+	rand    *rand.Rand
+	metrics nonShardedWriterMetrics
+	shardFn shardFn
+	randFn  randFn
 }
 
 // NewShardedWriter creates a new sharded writer.
@@ -94,39 +89,29 @@ func NewShardedWriter(
 	numShards := sharderID.NumShards()
 	nowFn := opts.ClockOptions().NowFn()
 	instrumentOpts := opts.InstrumentOptions()
-	w := &shardedWriter{
+	w := &nonShardedWriter{
 		AggregatedSharder:        sharder,
 		Router:                   router,
 		nowFn:                    nowFn,
 		maxBufferSize:            opts.MaxBufferSize(),
-		bufferedEncoderPool:      opts.BufferedEncoderPool(),
 		encodingTimeSamplingRate: opts.EncodingTimeSamplingRate(),
 		rand:                     rand.New(rand.NewSource(nowFn().UnixNano())),
-		encodersByShard:          make([]msgpack.AggregatedEncoder, numShards),
-		metrics:                  newShardedWriterMetrics(instrumentOpts.MetricsScope()),
+		metrics:                  newNonShardedWriterMetrics(instrumentOpts.MetricsScope()),
 	}
 	w.shardFn = w.Shard
 	w.randFn = w.rand.Float64
 	return w, nil
 }
 
-func (w *shardedWriter) Write(mp aggregated.ChunkedMetricWithStoragePolicy) error {
+func (w *nonShardedWriter) Write(mp aggregated.ChunkedMetricWithStoragePolicy) error {
 	if w.closed {
 		w.metrics.writerClosed.Inc(1)
 		return errWriterClosed
 	}
-	shard := w.shardFn(mp.ChunkedID)
-	encoder := w.encodersByShard[shard]
-	if encoder == nil {
-		bufferedEncoder := w.bufferedEncoderPool.Get()
-		bufferedEncoder.Reset()
-		encoder = msgpack.NewAggregatedEncoder(bufferedEncoder)
-		w.encodersByShard[shard] = encoder
-	}
-	return w.encode(encoder, mp, shard)
+	return w.encode(mp)
 }
 
-func (w *shardedWriter) Flush() error {
+func (w *nonShardedWriter) Flush() error {
 	if w.closed {
 		w.metrics.writerClosed.Inc(1)
 		return errWriterClosed
@@ -154,7 +139,7 @@ func (w *shardedWriter) Flush() error {
 	return multiErr.FinalError()
 }
 
-func (w *shardedWriter) Close() error {
+func (w *nonShardedWriter) Close() error {
 	if w.closed {
 		w.metrics.writerClosed.Inc(1)
 		return errWriterClosed
@@ -164,11 +149,11 @@ func (w *shardedWriter) Close() error {
 	return err
 }
 
-func (w *shardedWriter) encode(
-	encoder msgpack.AggregatedEncoder,
+func (w *nonShardedWriter) encode(
 	mp aggregated.ChunkedMetricWithStoragePolicy,
-	shard uint32,
 ) error {
+	//Use this later
+	// shard := w.shardFn(mp.ChunkedID)
 	bufferedEncoder := encoder.Encoder()
 	buffer := bufferedEncoder.Buffer()
 	sizeBefore := buffer.Len()
