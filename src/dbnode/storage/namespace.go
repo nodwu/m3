@@ -917,20 +917,7 @@ func (n *dbNamespace) Snapshot(
 			continue
 		}
 
-		// We don't need to perform this check for correctness, but we apply the same logic
-		// here as we do in the Flush() method so that we don't end up snapshotting a bunch
-		// of shards/blocks that would have been flushed after the next tick.
-		shardBootstrapStateBeforeTick, ok := shardBootstrapStatesAtTickStart[shard.ID()]
-		if !ok || shardBootstrapStateBeforeTick != Bootstrapped {
-			n.log.
-				WithFields(xlog.NewField("shard", shard.ID())).
-				WithFields(xlog.NewField("bootstrapStateBeforeTick", shardBootstrapStateBeforeTick)).
-				WithFields(xlog.NewField("bootstrapStateExists", ok)).
-				Debug("skipping snapshot due to shard bootstrap state before tick")
-			continue
-		}
-
-		err := shard.Snapshot(blockStart, snapshotTime, flush)
+		err := shard.Snapshot(blockStart, snapshotTime, snapshotPersist)
 		if err != nil {
 			detailedErr := fmt.Errorf("shard %d failed to snapshot: %v", shard.ID(), err)
 			multiErr = multiErr.Add(detailedErr)

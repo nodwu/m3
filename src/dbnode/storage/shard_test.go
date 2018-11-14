@@ -201,7 +201,7 @@ func TestShardFlushSeriesFlushError(t *testing.T) {
 	}
 
 	var closed bool
-	flush := persist.NewMockDataFlush(ctrl)
+	flush := persist.NewMockFlushPreparer(ctrl)
 	prepared := persist.PreparedDataPersist{
 		Persist: func(ident.ID, ident.Tags, ts.Segment, uint32) error { return nil },
 		Close:   func() error { closed = true; return nil },
@@ -266,7 +266,7 @@ func TestShardFlushSeriesFlushSuccess(t *testing.T) {
 	}
 
 	var closed bool
-	flush := persist.NewMockDataFlush(ctrl)
+	flush := persist.NewMockFlushPreparer(ctrl)
 	prepared := persist.PreparedDataPersist{
 		Persist: func(ident.ID, ident.Tags, ts.Segment, uint32) error { return nil },
 		Close:   func() error { closed = true; return nil },
@@ -322,8 +322,8 @@ func TestShardSnapshotShardNotBootstrapped(t *testing.T) {
 	defer s.Close()
 	s.bootstrapState = Bootstrapping
 
-	flush := persist.NewMockDataFlush(ctrl)
-	err := s.Snapshot(blockStart, blockStart, flush)
+	snapshotPreparer := persist.NewMockSnapshotPreparer(ctrl)
+	err := s.Snapshot(blockStart, blockStart, snapshotPreparer)
 	require.Equal(t, errShardNotBootstrappedToSnapshot, err)
 }
 
@@ -338,7 +338,7 @@ func TestShardSnapshotSeriesSnapshotSuccess(t *testing.T) {
 	s.bootstrapState = Bootstrapped
 
 	var closed bool
-	flush := persist.NewMockDataFlush(ctrl)
+	snapshotPreparer := persist.NewMockSnapshotPreparer(ctrl)
 	prepared := persist.PreparedDataPersist{
 		Persist: func(ident.ID, ident.Tags, ts.Segment, uint32) error { return nil },
 		Close:   func() error { closed = true; return nil },
@@ -353,7 +353,7 @@ func TestShardSnapshotSeriesSnapshotSuccess(t *testing.T) {
 			SnapshotTime: blockStart,
 		},
 	})
-	flush.EXPECT().PrepareData(prepareOpts).Return(prepared, nil)
+	snapshotPreparer.EXPECT().PrepareData(prepareOpts).Return(prepared, nil)
 
 	snapshotted := make(map[int]struct{})
 	for i := 0; i < 2; i++ {
@@ -370,7 +370,7 @@ func TestShardSnapshotSeriesSnapshotSuccess(t *testing.T) {
 		s.list.PushBack(lookup.NewEntry(series, 0))
 	}
 
-	err := s.Snapshot(blockStart, blockStart, flush)
+	err := s.Snapshot(blockStart, blockStart, snapshotPreparer)
 
 	require.Equal(t, len(snapshotted), 2)
 	for i := 0; i < 2; i++ {

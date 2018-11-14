@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/m3db/m3/src/dbnode/persist"
-	"github.com/m3db/m3/src/dbnode/persist/fs"
 	"github.com/m3db/m3/src/dbnode/retention"
 	xerrors "github.com/m3db/m3x/errors"
 	"github.com/pborman/uuid"
@@ -143,6 +142,40 @@ func (m *flushManager) Flush(
 		multiErr = multiErr.Add(err)
 	}
 
+	err = m.snapshot(namespaces, tickStart)
+	if err != nil {
+		multiErr = multiErr.Add(err)
+	}
+
+	// flush index data
+	// create index-flusher
+	indexFlush, err := m.pm.StartIndexPersist()
+	if err != nil {
+		multiErr = multiErr.Add(err)
+		return multiErr.FinalError()
+	}
+
+	m.setState(flushManagerIndexFlushInProgress)
+	for _, ns := range namespaces {
+		var (
+			indexOpts    = ns.Options().IndexOptions()
+			indexEnabled = indexOpts.Enabled()
+		)
+		if !indexEnabled {
+			continue
+		}
+		multiErr = multiErr.Add(ns.FlushIndex(indexFlush))
+	}
+	// mark index flush finished
+	multiErr = multiErr.Add(indexFlush.DoneIndex())
+
+	return multiErr.FinalError()
+}
+
+func (m *flushManager) snapshot(
+	namespaces []databaseNamespace,
+	tickStart time.Time,
+) error {
 	snapshotPersist, err := m.pm.StartSnapshotPersist()
 	if err != nil {
 		return err
@@ -173,69 +206,20 @@ func (m *flushManager) Flush(
 			if err != nil {
 				detailedErr := fmt.Errorf("namespace %s failed to snapshot data: %v",
 					ns.ID().String(), err)
-				multiErr = multiErr.Add(detailedErr)
 			}
 		}
 	}
 	m.maxBlocksSnapshottedByNamespace.Update(float64(maxBlocksSnapshottedByNamespace))
 
+	snapshotUUID := uuid.NewUUID()
 	// TODO(rartoul): Fill in the commitlog identifier here once the Rotate() API is hooked
 	// into the snapshotting process.
-	err = snapshotPersist.DoneSnapshot(nil, nil)
+	err = snapshotPersist.DoneSnapshot(snapshotUUID, nil)
 	if err != nil {
-		multiErr = multiErr.Add(err)
-	}
-
-	// Write out snapshot metadata now that we're done snapshotting.
-	fsOpts := m.opts.CommitLogOptions().FilesystemOptions()
-	nextIndex, err := fs.NextSnapshotMetadataFileIndex(fsOpts)
-	if err != nil {
-		// TODO
 		return err
 	}
 
-	// TODO: Debug logs
-	var (
-		writer       = fs.NewSnapshotMetadataWriter(fsOpts)
-		snapshotUUID = uuid.NewUUID()
-	)
-	err = writer.Write(fs.SnapshotMetadataWriteArgs{
-		ID: fs.SnapshotMetadataIdentifier{
-			Index: nextIndex,
-			UUID:  snapshotUUID,
-		},
-		// TODO(rartoul): Fill this in once we have the rotate API hooked
-		// into this flow.
-		CommitlogIdentifier: nil,
-	})
-	if err != nil {
-		// TODO
-		return err
-	}
-
-	// flush index data
-	// create index-flusher
-	indexFlush, err := m.pm.StartIndexPersist()
-	if err != nil {
-		multiErr = multiErr.Add(err)
-		return multiErr.FinalError()
-	}
-
-	m.setState(flushManagerIndexFlushInProgress)
-	for _, ns := range namespaces {
-		var (
-			indexOpts    = ns.Options().IndexOptions()
-			indexEnabled = indexOpts.Enabled()
-		)
-		if !indexEnabled {
-			continue
-		}
-		multiErr = multiErr.Add(ns.FlushIndex(indexFlush))
-	}
-	// mark index flush finished
-	multiErr = multiErr.Add(indexFlush.DoneIndex())
-
-	return multiErr.FinalError()
+	return nil
 }
 
 func (m *flushManager) Report() {
