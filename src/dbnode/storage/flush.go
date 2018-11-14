@@ -297,13 +297,13 @@ func (m *flushManager) flushNamespaceWithTimes(
 	ns databaseNamespace,
 	ShardBootstrapStates ShardBootstrapStates,
 	times []time.Time,
-	flush persist.FlushPreparer,
+	flushPreparer persist.FlushPreparer,
 ) error {
 	multiErr := xerrors.NewMultiError()
 	for _, t := range times {
 		// NB(xichen): we still want to proceed if a namespace fails to flush its data.
 		// Probably want to emit a counter here, but for now just log it.
-		if err := ns.Flush(t, ShardBootstrapStates, flush); err != nil {
+		if err := ns.Flush(t, ShardBootstrapStates, flushPreparer); err != nil {
 			detailedErr := fmt.Errorf("namespace %s failed to flush data: %v",
 				ns.ID().String(), err)
 			multiErr = multiErr.Add(detailedErr)

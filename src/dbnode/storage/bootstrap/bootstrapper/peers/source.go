@@ -132,12 +132,12 @@ func (s *peersSource) ReadData(
 			return nil, err
 		}
 
-		persist, err := persistManager.StartDataPersist()
+		persist, err := persistManager.StartFlushPersist()
 		if err != nil {
 			return nil, err
 		}
 
-		defer persist.DoneData()
+		defer persist.DoneFlush()
 
 		shouldPersist = true
 		blockRetriever = r

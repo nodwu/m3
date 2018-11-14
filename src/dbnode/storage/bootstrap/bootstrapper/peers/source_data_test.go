@@ -300,8 +300,8 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 
 		opts = opts.SetDatabaseBlockRetrieverManager(mockRetrieverMgr)
 
-		mockFlush := persist.NewMockDataFlush(ctrl)
-		mockFlush.EXPECT().DoneData()
+		flushPreparer := persist.NewMockFlushPreparer(ctrl)
+		flushPreparer.EXPECT().DoneFlush()
 		persists := make(map[string]int)
 		closes := make(map[string]int)
 		prepareOpts := xtest.CmpMatcher(persist.DataPrepareOptions{
@@ -310,7 +310,7 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 			BlockStart:        start,
 			DeleteIfExists:    true,
 		})
-		mockFlush.EXPECT().
+		flushPreparer.EXPECT().
 			PrepareData(prepareOpts).
 			Return(persist.PreparedDataPersist{
 				Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -331,7 +331,7 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 			BlockStart:        start.Add(ropts.BlockSize()),
 			DeleteIfExists:    true,
 		})
-		mockFlush.EXPECT().
+		flushPreparer.EXPECT().
 			PrepareData(prepareOpts).
 			Return(persist.PreparedDataPersist{
 				Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -352,7 +352,7 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 			BlockStart:        start,
 			DeleteIfExists:    true,
 		})
-		mockFlush.EXPECT().
+		flushPreparer.EXPECT().
 			PrepareData(prepareOpts).
 			Return(persist.PreparedDataPersist{
 				Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -373,7 +373,7 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 			BlockStart:        start.Add(ropts.BlockSize()),
 			DeleteIfExists:    true,
 		})
-		mockFlush.EXPECT().
+		flushPreparer.EXPECT().
 			PrepareData(prepareOpts).
 			Return(persist.PreparedDataPersist{
 				Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -387,7 +387,7 @@ func TestPeersSourceRunWithPersist(t *testing.T) {
 			}, nil)
 
 		mockPersistManager := persist.NewMockManager(ctrl)
-		mockPersistManager.EXPECT().StartDataPersist().Return(mockFlush, nil)
+		mockPersistManager.EXPECT().StartFlushPersist().Return(flushPreparer, nil)
 
 		opts = opts.SetPersistManager(mockPersistManager)
 
@@ -530,8 +530,8 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 
 	opts = opts.SetDatabaseBlockRetrieverManager(mockRetrieverMgr)
 
-	mockFlush := persist.NewMockDataFlush(ctrl)
-	mockFlush.EXPECT().DoneData()
+	flushPreprarer := persist.NewMockFlushPreparer(ctrl)
+	flushPreprarer.EXPECT().DoneFlush()
 
 	persists := make(map[string]int)
 	closes := make(map[string]int)
@@ -543,7 +543,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        start,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -561,7 +561,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        midway,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -581,7 +581,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        start,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -599,7 +599,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        midway,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -619,7 +619,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        start,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -637,7 +637,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        midway,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -657,7 +657,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        start,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -675,7 +675,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		BlockStart:        midway,
 		DeleteIfExists:    true,
 	})
-	mockFlush.EXPECT().
+	flushPreprarer.EXPECT().
 		PrepareData(prepareOpts).
 		Return(persist.PreparedDataPersist{
 			Persist: func(id ident.ID, _ ident.Tags, segment ts.Segment, checksum uint32) error {
@@ -689,7 +689,7 @@ func TestPeersSourceMarksUnfulfilledOnPersistenceErrors(t *testing.T) {
 		}, nil)
 
 	mockPersistManager := persist.NewMockManager(ctrl)
-	mockPersistManager.EXPECT().StartDataPersist().Return(mockFlush, nil)
+	mockPersistManager.EXPECT().StartFlushPersist().Return(flushPreprarer, nil)
 
 	opts = opts.SetPersistManager(mockPersistManager)
 

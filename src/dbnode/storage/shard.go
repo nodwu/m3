@@ -1773,7 +1773,7 @@ func (s *dbShard) Bootstrap(
 
 func (s *dbShard) Flush(
 	blockStart time.Time,
-	flush persist.FlushPreparer,
+	flushPreparer persist.FlushPreparer,
 ) error {
 	// We don't flush data when the shard is still bootstrapping
 	s.RLock()
@@ -1793,7 +1793,7 @@ func (s *dbShard) Flush(
 		// racing competing processes.
 		DeleteIfExists: false,
 	}
-	prepared, err := flush.PrepareData(prepareOpts)
+	prepared, err := flushPreparer.PrepareData(prepareOpts)
 	if err != nil {
 		return s.markFlushStateSuccessOrError(blockStart, err)
 	}
@@ -1834,7 +1834,7 @@ func (s *dbShard) Flush(
 func (s *dbShard) Snapshot(
 	blockStart time.Time,
 	snapshotTime time.Time,
-	flush persist.SnapshotPreparer,
+	snapshotPreparer persist.SnapshotPreparer,
 ) error {
 	// We don't snapshot data when the shard is still bootstrapping
 	s.RLock()
@@ -1865,7 +1865,7 @@ func (s *dbShard) Snapshot(
 			SnapshotTime: snapshotTime,
 		},
 	}
-	prepared, err := flush.PrepareData(prepareOpts)
+	prepared, err := snapshotPreparer.PrepareData(prepareOpts)
 	// Add the err so the defer will capture it
 	multiErr = multiErr.Add(err)
 	if err != nil {
