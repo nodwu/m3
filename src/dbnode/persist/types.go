@@ -60,8 +60,11 @@ type PreparedIndexPersist struct {
 
 // Manager manages the internals of persisting data onto storage layer.
 type Manager interface {
-	// StartDataPersist begins a data flush for a set of shards.
+	// StartFlushPersist begins a data flush for a set of shards.
 	StartFlushPersist() (DataFlush, error)
+
+	// StartSnapshotPersist begins a snapshot for a set of shards.
+	StartSnapshotPersist() (DataFlush, error)
 
 	// StartIndexPersist begins a flush for index data.
 	StartIndexPersist() (IndexFlush, error)

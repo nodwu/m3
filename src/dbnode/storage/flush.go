@@ -99,7 +99,7 @@ func (m *flushManager) Flush(
 	defer m.setState(flushManagerIdle)
 
 	// create flush-er
-	flush, err := m.pm.StartDataPersist()
+	flushPersist, err := m.pm.StartFlushPersist()
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,22 @@ func (m *flushManager) Flush(
 				"tried to flush ns: %s, but did not have shard bootstrap times", ns.ID().String()))
 			continue
 		}
-		multiErr = multiErr.Add(m.flushNamespaceWithTimes(ns, shardBootstrapTimes, flushTimes, flush))
+
+		err = m.flushNamespaceWithTimes(
+			ns, shardBootstrapTimes, flushTimes, flushPersist)
+		if err != nil {
+			multiErr = multiErr.Add(err)
+		}
+	}
+
+	err = flushPersist.DoneFlush()
+	if err != nil {
+		multiErr = multiErr.Add(err)
+	}
+
+	snapshotPersist, err := m.pm.StartSnapshotPersist()
+	if err != nil {
+		return err
 	}
 
 	m.setState(flushManagerSnapshotInProgress)
@@ -164,8 +179,12 @@ func (m *flushManager) Flush(
 	}
 	m.maxBlocksSnapshottedByNamespace.Update(float64(maxBlocksSnapshottedByNamespace))
 
-	// mark data flush finished
-	multiErr = multiErr.Add(flush.DoneData())
+	// TODO(rartoul): Fill in the commitlog identifier here once the Rotate() API is hooked
+	// into the snapshotting process.
+	err = snapshotPersist.DoneSnapshot(nil, nil)
+	if err != nil {
+		multiErr = multiErr.Add(err)
+	}
 
 	// Write out snapshot metadata now that we're done snapshotting.
 	fsOpts := m.opts.CommitLogOptions().FilesystemOptions()
