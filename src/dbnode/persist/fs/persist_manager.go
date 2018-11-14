@@ -170,8 +170,10 @@ func NewPersistManager(opts Options) (persist.Manager, error) {
 		nowFn:          opts.ClockOptions().NowFn(),
 		sleepFn:        time.Sleep,
 		dataPM: dataPersistManager{
-			writer:        dataWriter,
-			segmentHolder: make([]checked.Bytes, 2),
+			writer:                        dataWriter,
+			segmentHolder:                 make([]checked.Bytes, 2),
+			nextSnapshotMetadataFileIndex: NextSnapshotMetadataFileIndex,
+			snapshotMetadataWriter:        NewSnapshotMetadataWriter(opts),
 		},
 		indexPM: indexPersistManager{
 			writer:        idxWriter,
