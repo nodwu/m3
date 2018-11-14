@@ -1773,7 +1773,7 @@ func (s *dbShard) Bootstrap(
 
 func (s *dbShard) Flush(
 	blockStart time.Time,
-	flush persist.DataFlush,
+	flush persist.FlushPreparer,
 ) error {
 	// We don't flush data when the shard is still bootstrapping
 	s.RLock()
@@ -1834,7 +1834,7 @@ func (s *dbShard) Flush(
 func (s *dbShard) Snapshot(
 	blockStart time.Time,
 	snapshotTime time.Time,
-	flush persist.DataFlush,
+	flush persist.SnapshotPreparer,
 ) error {
 	// We don't snapshot data when the shard is still bootstrapping
 	s.RLock()

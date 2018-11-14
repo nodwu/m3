@@ -294,38 +294,6 @@ func TestPersistenceManagerPrepareSnapshotSuccess(t *testing.T) {
 	require.Equal(t, int64(104), pm.bytesWritten)
 }
 
-// TestPersistenceManagerDoneFlushRequireStartFlushPersist makes sure that
-// DoneFlush can only be called on flush persists, not snapshot persists.
-func TestPersistenceManagerDoneFlushRequireStartFlushPersist(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	pm, _, _, _ := testDataPersistManager(t, ctrl)
-	defer os.RemoveAll(pm.filePathPrefix)
-
-	snapshotPersist, err := pm.StartSnapshotPersist()
-	require.NoError(t, err)
-
-	// DoneFlush should return an error if the persist is a snapshot not a flash.
-	assert.Error(t, snapshotPersist.DoneFlush())
-}
-
-// TestPersistenceManagerDoneSnapshotRequireStartSnapshotPersist makes sure that
-// DoneSnapshot can only be called on snapshot persists, not flush persists.
-func TestPersistenceManagerDoneSnapshotRequireStartSnapshotPersist(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	pm, _, _, _ := testDataPersistManager(t, ctrl)
-	defer os.RemoveAll(pm.filePathPrefix)
-
-	flushPersist, err := pm.StartFlushPersist()
-	require.NoError(t, err)
-
-	// DoneSnapshot should return an error if the persist is a flush not a snapshot.
-	assert.Error(t, flushPersist.DoneSnapshot(nil, nil))
-}
-
 func TestPersistenceManagerCloseData(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

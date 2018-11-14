@@ -363,7 +363,7 @@ func (pm *persistManager) DoneIndex() error {
 }
 
 // StartFlushPersist is called by the databaseFlushManager to begin the persist process.
-func (pm *persistManager) StartFlushPersist() (persist.DataFlush, error) {
+func (pm *persistManager) StartFlushPersist() (persist.FlushPreparer, error) {
 	pm.Lock()
 	defer pm.Unlock()
 
@@ -377,7 +377,7 @@ func (pm *persistManager) StartFlushPersist() (persist.DataFlush, error) {
 }
 
 // StartSnapshotPersist is called by the databaseFlushManager to begin the snapshot process.
-func (pm *persistManager) StartSnapshotPersist() (persist.DataFlush, error) {
+func (pm *persistManager) StartSnapshotPersist() (persist.SnapshotPreparer, error) {
 	pm.Lock()
 	defer pm.Unlock()
 
@@ -537,6 +537,7 @@ func (pm *persistManager) DoneFlush() error {
 	}
 
 	if pm.dataPM.fileSetType != persist.FileSetFlushType {
+		// Should never happen since interface returned by StartSnapshotPersist does not allow it.
 		return errPersistManagerCannotDoneFlushNotFlush
 	}
 
@@ -554,6 +555,7 @@ func (pm *persistManager) DoneSnapshot(
 	}
 
 	if pm.dataPM.fileSetType != persist.FileSetSnapshotType {
+		// Should never happen since interface returned by StartFlushPersist does not allow it.
 		return errPersistManagerCannotDoneSnapshotNotSnapshot
 	}
 

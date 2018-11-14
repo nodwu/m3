@@ -106,7 +106,7 @@ func (s *peersSource) ReadData(
 		namespace         = nsMetadata.ID()
 		blockRetriever    block.DatabaseBlockRetriever
 		shardRetrieverMgr block.DatabaseShardBlockRetrieverManager
-		persistFlush      persist.DataFlush
+		persistFlush      persist.FlushPreparer
 		shouldPersist     = false
 		seriesCachePolicy = s.opts.ResultOptions().SeriesCachePolicy()
 		persistConfig     = opts.PersistConfig()
@@ -218,7 +218,7 @@ func (s *peersSource) startPersistenceQueueWorkerLoop(
 	opts bootstrap.RunOptions,
 	doneCh chan struct{},
 	persistenceQueue chan persistenceFlush,
-	persistFlush persist.DataFlush,
+	persistFlush persist.FlushPreparer,
 	bootstrapResult result.DataBootstrapResult,
 	lock *sync.Mutex,
 ) {
@@ -348,7 +348,7 @@ func (s *peersSource) logFetchBootstrapBlocksFromPeersOutcome(
 // object and then immediately evicting them in the next tick.
 func (s *peersSource) flush(
 	opts bootstrap.RunOptions,
-	flush persist.DataFlush,
+	flush persist.FlushPreparer,
 	nsMetadata namespace.Metadata,
 	shard uint32,
 	shardRetrieverMgr block.DatabaseShardBlockRetrieverManager,

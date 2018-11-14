@@ -61,25 +61,37 @@ type PreparedIndexPersist struct {
 // Manager manages the internals of persisting data onto storage layer.
 type Manager interface {
 	// StartFlushPersist begins a data flush for a set of shards.
-	StartFlushPersist() (DataFlush, error)
+	StartFlushPersist() (FlushPreparer, error)
 
 	// StartSnapshotPersist begins a snapshot for a set of shards.
-	StartSnapshotPersist() (DataFlush, error)
+	StartSnapshotPersist() (SnapshotPreparer, error)
 
 	// StartIndexPersist begins a flush for index data.
 	StartIndexPersist() (IndexFlush, error)
 }
 
-// DataFlush is a persist flush cycle, each shard and block start permutation needs
-// to explicility be prepared.
-type DataFlush interface {
+// Preparer can generated a PreparedDataPersist object for writing data for
+// a given (shard, blockstart) combination.
+type Preparer interface {
 	// Prepare prepares writing data for a given (shard, blockStart) combination,
 	// returning a PreparedDataPersist object and any error encountered during
 	// preparation if any.
 	PrepareData(opts DataPrepareOptions) (PreparedDataPersist, error)
+}
+
+// FlushPreparer is a persist flush cycle, each shard and block start permutation needs
+// to explicility be prepared.
+type FlushPreparer interface {
+	Preparer
 
 	// DoneFlush marks the data flush as complete.
 	DoneFlush() error
+}
+
+// SnapshotPreparer is a persist snapshot cycle, each shard and block start permutation needs
+// to explicility be prepared.
+type SnapshotPreparer interface {
+	Preparer
 
 	// DoneSnapshot marks the snapshot as complete.
 	DoneSnapshot(snapshotUUID uuid.UUID, commitLogIdentifier []byte) error

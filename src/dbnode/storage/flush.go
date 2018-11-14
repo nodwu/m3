@@ -313,7 +313,7 @@ func (m *flushManager) flushNamespaceWithTimes(
 	ns databaseNamespace,
 	ShardBootstrapStates ShardBootstrapStates,
 	times []time.Time,
-	flush persist.DataFlush,
+	flush persist.FlushPreparer,
 ) error {
 	multiErr := xerrors.NewMultiError()
 	for _, t := range times {

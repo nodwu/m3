@@ -791,7 +791,7 @@ func (n *dbNamespace) Bootstrap(start time.Time, process bootstrap.Process) erro
 func (n *dbNamespace) Flush(
 	blockStart time.Time,
 	shardBootstrapStatesAtTickStart ShardBootstrapStates,
-	flush persist.DataFlush,
+	flushPersist persist.FlushPreparer,
 ) error {
 	// NB(rartoul): This value can be used for emitting metrics, but should not be used
 	// for business logic.
@@ -843,7 +843,7 @@ func (n *dbNamespace) Flush(
 		}
 		// NB(xichen): we still want to proceed if a shard fails to flush its data.
 		// Probably want to emit a counter here, but for now just log it.
-		if err := shard.Flush(blockStart, flush); err != nil {
+		if err := shard.Flush(blockStart, flushPersist); err != nil {
 			detailedErr := fmt.Errorf("shard %d failed to flush data: %v",
 				shard.ID(), err)
 			multiErr = multiErr.Add(detailedErr)
@@ -880,8 +880,8 @@ func (n *dbNamespace) FlushIndex(
 func (n *dbNamespace) Snapshot(
 	blockStart,
 	snapshotTime time.Time,
-	shardBootstrapStatesAtTickStart ShardBootstrapStates,
-	flush persist.DataFlush) error {
+	snapshotPersist persist.SnapshotPreparer,
+) error {
 	// NB(rartoul): This value can be used for emitting metrics, but should not be used
 	// for business logic.
 	callStart := n.nowFn()
