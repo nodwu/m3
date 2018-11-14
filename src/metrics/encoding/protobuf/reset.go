@@ -22,6 +22,12 @@ package protobuf
 
 import "github.com/m3db/m3/src/metrics/generated/proto/metricpb"
 
+func resetChunkedMetricWithStoragePolicyWithEncodeNanosProto(pb *metricpb.ChunkedMetricWithStoragePolicyWithEncodeTime) {
+	if pb == nil {
+		return
+	}
+}
+
 // resetMetricWithMetadatasProto resets the metric with metadatas proto, and
 // in particular message fields that are slices because the `Unmarshal` generated
 // from gogoprotobuf simply append a new entry at the end of the slice, and

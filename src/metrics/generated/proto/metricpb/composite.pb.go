@@ -21,33 +21,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-/*
-	Package metricpb is a generated protocol buffer package.
-
-	It is generated from these files:
-		github.com/m3db/m3/src/metrics/generated/proto/metricpb/composite.proto
-		github.com/m3db/m3/src/metrics/generated/proto/metricpb/metadata.proto
-		github.com/m3db/m3/src/metrics/generated/proto/metricpb/metric.proto
-
-	It has these top-level messages:
-		CounterWithMetadatas
-		BatchTimerWithMetadatas
-		GaugeWithMetadatas
-		ForwardedMetricWithMetadata
-		TimedMetricWithMetadata
-		MetricWithMetadatas
-		PipelineMetadata
-		Metadata
-		StagedMetadata
-		StagedMetadatas
-		ForwardMetadata
-		TimedMetadata
-		Counter
-		BatchTimer
-		Gauge
-		TimedMetric
-		ForwardedMetric
-*/
 package metricpb
 
 import proto "github.com/gogo/protobuf/proto"
@@ -61,12 +34,6 @@ import io "io"
 var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
-
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the proto package it is being compiled against.
-// A compilation error at this line likely means your copy of the
-// proto package needs to be updated.
-const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
 
 type MetricWithMetadatas_Type int32
 

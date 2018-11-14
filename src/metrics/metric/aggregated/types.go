@@ -84,6 +84,26 @@ type ChunkedMetric struct {
 	Value     float64
 }
 
+// ToProto converts the chunked metric to a protobuf message in place.
+func (m ChunkedMetric) ToProto(pb *metricpb.ChunkedMetric) error {
+	pb.ChunkedId.Prefix = m.ChunkedID.Prefix
+	pb.ChunkedId.Data = m.ChunkedID.Data
+	pb.ChunkedId.Suffix = m.ChunkedID.Suffix
+	pb.TimeNanos = m.TimeNanos
+	pb.Value = m.Value
+	return nil
+}
+
+// FromProto converts the protobuf message to a chunked metric in place.
+func (m *ChunkedMetric) FromProto(pb metricpb.ChunkedMetric) error {
+	m.ChunkedID.Prefix = pb.ChunkedId.Prefix
+	m.ChunkedID.Data = pb.ChunkedId.Data
+	m.ChunkedID.Suffix = pb.ChunkedId.Suffix
+	m.TimeNanos = pb.TimeNanos
+	m.Value = pb.Value
+	return nil
+}
+
 // RawMetric is a metric in its raw form (e.g., encoded bytes associated with
 // a metric object).
 type RawMetric interface {
@@ -123,10 +143,21 @@ type ChunkedMetricWithStoragePolicy struct {
 	policy.StoragePolicy
 }
 
-// RawMetricWithStoragePolicy is a raw metric with applicable storage policy.
-type RawMetricWithStoragePolicy struct {
-	RawMetric
-	policy.StoragePolicy
+// ToProto converts the chunked metric with storage policy to a protobuf message in place.
+func (m ChunkedMetricWithStoragePolicy) ToProto(pb *metricpb.ChunkedMetricWithStoragePolicy) error {
+	if err := m.ChunkedMetric.ToProto(&pb.ChunkedMetric); err != nil {
+		return err
+	}
+
+	return m.StoragePolicy.ToProto(&pb.StoragePolicy)
+}
+
+// FromProto converts the protobuf message to a chunked metric with storage policy in place.
+func (m *ChunkedMetricWithStoragePolicy) FromProto(pb metricpb.ChunkedMetricWithStoragePolicy) error {
+	if err := m.ChunkedMetric.FromProto(pb.ChunkedMetric); err != nil {
+		return err
+	}
+	return m.StoragePolicy.FromProto(pb.StoragePolicy)
 }
 
 // ForwardedMetric is a forwarded metric.
