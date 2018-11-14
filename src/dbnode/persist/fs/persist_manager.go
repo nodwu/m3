@@ -543,7 +543,7 @@ func (pm *persistManager) DoneFlush() error {
 	return pm.doneShared()
 }
 
-// DoneSnapshot is called by the databaseFlushManager to finish the data persist process.
+// DoneSnapshot is called by the databaseFlushManager to finish the snapshot persist process.
 func (pm *persistManager) DoneSnapshot(
 	snapshotUUID uuid.UUID, commitLogIdentifier []byte) error {
 	pm.Lock()
