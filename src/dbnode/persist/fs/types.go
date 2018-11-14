@@ -93,6 +93,11 @@ type SnapshotMetadataFileWriter interface {
 	Write(args SnapshotMetadataWriteArgs) error
 }
 
+// SnapshotMetadataFileReader reads snapshot metadata files.
+type SnapshotMetadataFileReader interface {
+	Read(id SnapshotMetadataIdentifier) (SnapshotMetadata, error)
+}
+
 // DataFileSetReaderStatus describes the status of a file set reader
 type DataFileSetReaderStatus struct {
 	Namespace  ident.ID
