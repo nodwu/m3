@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/m3db/m3/src/metrics/encoding/msgpack"
 	"github.com/m3db/m3/src/metrics/generated/proto/metricpb"
 	"github.com/m3db/m3/src/metrics/metric/aggregated"
 	"github.com/m3db/m3x/pool"
@@ -36,7 +37,8 @@ type Encoder interface {
 		encodedAtNanos int64,
 	) error
 
-	Bytes() []byte
+	Encode(m aggregated.MetricWithStoragePolicy, encodedAtNanos int64) error
+	Buffer() msgpack.Buffer
 }
 
 // AggregatedEncoder encodes aggregated metrics.

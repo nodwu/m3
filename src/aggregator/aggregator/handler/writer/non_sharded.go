@@ -24,13 +24,13 @@ import (
 	"errors"
 	"math/rand"
 
-	"github.com/m3db/m3/src/aggregator/aggregator/handler/common"
-	"github.com/m3db/m3/src/aggregator/aggregator/handler/router"
 	"github.com/m3db/m3/src/aggregator/sharding"
+	"github.com/m3db/m3/src/metrics/encoding/msgpack"
 	"github.com/m3db/m3/src/metrics/encoding/protobuf"
 	"github.com/m3db/m3/src/metrics/metric/aggregated"
+	"github.com/m3db/m3/src/msg/producer"
 	"github.com/m3db/m3x/clock"
-	xerrors "github.com/m3db/m3x/errors"
+
 	"github.com/uber-go/tally"
 )
 
@@ -62,12 +62,12 @@ func newNonShardedWriterMetrics(scope tally.Scope) nonShardedWriterMetrics {
 // nonShardedWriter is not thread safe.
 type nonShardedWriter struct {
 	sharding.AggregatedSharder
-	router.Router
 
 	nowFn                    clock.NowFn
 	maxBufferSize            int
 	encodingTimeSamplingRate float64
 	encoder                  protobuf.Encoder
+	p                        producer.Producer
 
 	closed  bool
 	rand    *rand.Rand
@@ -77,31 +77,29 @@ type nonShardedWriter struct {
 }
 
 // NewShardedWriter creates a new sharded writer.
-func NewShardedWriter(
-	sharderID sharding.SharderID,
-	router router.Router,
-	opts Options,
-) (Writer, error) {
-	sharder, err := sharding.NewAggregatedSharder(sharderID)
-	if err != nil {
-		return nil, err
-	}
-	numShards := sharderID.NumShards()
-	nowFn := opts.ClockOptions().NowFn()
-	instrumentOpts := opts.InstrumentOptions()
-	w := &nonShardedWriter{
-		AggregatedSharder:        sharder,
-		Router:                   router,
-		nowFn:                    nowFn,
-		maxBufferSize:            opts.MaxBufferSize(),
-		encodingTimeSamplingRate: opts.EncodingTimeSamplingRate(),
-		rand:                     rand.New(rand.NewSource(nowFn().UnixNano())),
-		metrics:                  newNonShardedWriterMetrics(instrumentOpts.MetricsScope()),
-	}
-	w.shardFn = w.Shard
-	w.randFn = w.rand.Float64
-	return w, nil
-}
+// func NewShardedWriter(
+// 	sharderID sharding.SharderID,
+// 	opts Options,
+// ) (Writer, error) {
+// 	sharder, err := sharding.NewAggregatedSharder(sharderID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	numShards := sharderID.NumShards()
+// 	nowFn := opts.ClockOptions().NowFn()
+// 	instrumentOpts := opts.InstrumentOptions()
+// 	w := &nonShardedWriter{
+// 		AggregatedSharder:        sharder,
+// 		nowFn:                    nowFn,
+// 		maxBufferSize:            opts.MaxBufferSize(),
+// 		encodingTimeSamplingRate: opts.EncodingTimeSamplingRate(),
+// 		rand:                     rand.New(rand.NewSource(nowFn().UnixNano())),
+// 		metrics:                  newNonShardedWriterMetrics(instrumentOpts.MetricsScope()),
+// 	}
+// 	w.shardFn = w.Shard
+// 	w.randFn = w.rand.Float64
+// 	return w, nil
+// }
 
 func (w *nonShardedWriter) Write(mp aggregated.ChunkedMetricWithStoragePolicy) error {
 	if w.closed {
@@ -112,31 +110,32 @@ func (w *nonShardedWriter) Write(mp aggregated.ChunkedMetricWithStoragePolicy) e
 }
 
 func (w *nonShardedWriter) Flush() error {
-	if w.closed {
-		w.metrics.writerClosed.Inc(1)
-		return errWriterClosed
-	}
-	multiErr := xerrors.NewMultiError()
-	for shard, encoder := range w.encodersByShard {
-		if encoder == nil {
-			continue
-		}
-		bufferedEncoder := encoder.Encoder()
-		buffer := bufferedEncoder.Buffer()
-		if buffer.Len() == 0 {
-			continue
-		}
-		newBufferedEncoder := w.bufferedEncoderPool.Get()
-		newBufferedEncoder.Reset()
-		encoder.Reset(newBufferedEncoder)
-		if err := w.Route(uint32(shard), common.NewRefCountedBuffer(bufferedEncoder)); err != nil {
-			w.metrics.routeErrors.Inc(1)
-			multiErr = multiErr.Add(err)
-		} else {
-			w.metrics.routeSuccess.Inc(1)
-		}
-	}
-	return multiErr.FinalError()
+	return nil
+	// if w.closed {
+	// 	w.metrics.writerClosed.Inc(1)
+	// 	return errWriterClosed
+	// }
+	// multiErr := xerrors.NewMultiError()
+	// for shard, encoder := range w.encodersByShard {
+	// 	if encoder == nil {
+	// 		continue
+	// 	}
+	// 	bufferedEncoder := encoder.Encoder()
+	// 	buffer := bufferedEncoder.Buffer()
+	// 	if buffer.Len() == 0 {
+	// 		continue
+	// 	}
+	// 	newBufferedEncoder := w.bufferedEncoderPool.Get()
+	// 	newBufferedEncoder.Reset()
+	// 	encoder.Reset(newBufferedEncoder)
+	// 	if err := w.Route(uint32(shard), common.NewRefCountedBuffer(bufferedEncoder)); err != nil {
+	// 		w.metrics.routeErrors.Inc(1)
+	// 		multiErr = multiErr.Add(err)
+	// 	} else {
+	// 		w.metrics.routeSuccess.Inc(1)
+	// 	}
+	// }
+	// return multiErr.FinalError()
 }
 
 func (w *nonShardedWriter) Close() error {
@@ -154,47 +153,50 @@ func (w *nonShardedWriter) encode(
 ) error {
 	//Use this later
 	// shard := w.shardFn(mp.ChunkedID)
-	bufferedEncoder := encoder.Encoder()
-	buffer := bufferedEncoder.Buffer()
-	sizeBefore := buffer.Len()
-
-	// Encode data.
-	var err error
+	var shard uint32
+	var encodeNanos int64
 	if w.encodingTimeSamplingRate > 0 && w.randFn() < w.encodingTimeSamplingRate {
-		encodedAtNanos := w.nowFn().UnixNano()
-		err = encoder.EncodeChunkedMetricWithStoragePolicyAndEncodeTime(mp, encodedAtNanos)
-	} else {
-		err = encoder.EncodeChunkedMetricWithStoragePolicy(mp)
+		encodeNanos = w.nowFn().UnixNano()
 	}
-	if err != nil {
+	if err := w.encoder.EncodeChunkedMetricAndEncodeTime(mp, encodeNanos); err != nil {
 		w.metrics.encodeErrors.Inc(1)
-		buffer.Truncate(sizeBefore)
-		// Clear out the encoder error.
-		encoder.Reset(bufferedEncoder)
 		return err
 	}
 	w.metrics.encodeSuccess.Inc(1)
-
-	// If the buffer size is not big enough, do nothing.
-	sizeAfter := buffer.Len()
-	if sizeAfter < w.maxBufferSize {
-		return nil
-	}
-	// Otherwise we get a new buffer and copy the bytes exceeding the max
-	// flush size to it, swap the new buffer with the old one, and flush out
-	// the old buffer.
-	bufferedEncoder2 := w.bufferedEncoderPool.Get()
-	bufferedEncoder2.Reset()
-	if sizeBefore > 0 {
-		data := bufferedEncoder.Bytes()
-		bufferedEncoder2.Buffer().Write(data[sizeBefore:sizeAfter])
-		buffer.Truncate(sizeBefore)
-	}
-	encoder.Reset(bufferedEncoder2)
-	if err := w.Route(shard, common.NewRefCountedBuffer(bufferedEncoder)); err != nil {
+	if err := w.p.Produce(newMessage(shard, w.encoder.Buffer())); err != nil {
 		w.metrics.routeErrors.Inc(1)
-		return err
 	}
 	w.metrics.routeSuccess.Inc(1)
 	return nil
+}
+
+type message struct {
+	shard uint32
+	data  msgpack.Buffer
+}
+
+// TODO(cw): Pool the messages if needed.
+func newMessage(shard uint32, data msgpack.Buffer) producer.Message {
+	return message{shard: shard, data: data}
+}
+
+func (d message) Shard() uint32 {
+	return d.shard
+}
+
+func (d message) Bytes() []byte {
+	return d.data.Bytes()
+}
+
+func (d message) Size() int {
+	// Use the cap of the underlying byte slice in the buffer instead of
+	// the length of the byte encoded to avoid "memory leak", for example
+	// when the underlying buffer is 2KB, and it only encoded 300B, if we
+	// use 300 as the size, then a producer with a buffer of 3GB could be
+	// actually buffering 20GB in total for the underlying buffers.
+	return cap(d.data.Bytes())
+}
+
+func (d message) Finalize(producer.FinalizeReason) {
+	d.data.Close()
 }
