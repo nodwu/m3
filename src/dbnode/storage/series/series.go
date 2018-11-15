@@ -127,7 +127,13 @@ func (s *dbSeries) Tick() (TickResult, error) {
 		// that got persisted to disk for that blockStart. As such, the cached
 		// block is no longer up to date, so we remove it to be retrieved from
 		// disk next time this is queried for.
-		s.blocks.RemoveBlockAt(blockStart)
+		block, exists := s.blocks.BlockAt(blockStart)
+		if exists {
+			s.blocks.RemoveBlockAt(blockStart)
+			if s.opts.CachePolicy() != CacheLRU {
+				block.Close()
+			}
+		}
 	}
 
 	update, err := s.updateBlocksWithLock()
