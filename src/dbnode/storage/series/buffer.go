@@ -48,7 +48,6 @@ var (
 const (
 	cacheSize = 2
 
-	// TODO(juchan): make sure this is a good pool size or make it customizable
 	defaultBucketContainerPoolSize = 2
 
 	numMetricTypes = 2
