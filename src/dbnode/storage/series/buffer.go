@@ -30,7 +30,6 @@ import (
 	"github.com/m3db/m3/src/dbnode/encoding"
 	"github.com/m3db/m3/src/dbnode/persist"
 	"github.com/m3db/m3/src/dbnode/storage/block"
-	m3dberrors "github.com/m3db/m3/src/dbnode/storage/errors"
 	"github.com/m3db/m3/src/dbnode/ts"
 	"github.com/m3db/m3/src/dbnode/x/xio"
 	"github.com/m3db/m3x/context"
@@ -129,10 +128,9 @@ type dbBuffer struct {
 	bucketCache [cacheSize]*dbBufferBucket
 	bucketPool  *dbBufferBucketPool
 
-	blockSize               time.Duration
-	bufferPast              time.Duration
-	bufferFuture            time.Duration
-	outOfOrderWritesEnabled bool
+	blockSize    time.Duration
+	bufferPast   time.Duration
+	bufferFuture time.Duration
 }
 
 // NB(prateek): databaseBuffer.Reset(...) must be called upon the returned
@@ -154,7 +152,6 @@ func (b *dbBuffer) Reset(blockRetriever QueryableBlockRetriever, opts Options) {
 	b.blockSize = ropts.BlockSize()
 	b.bufferPast = ropts.BufferPast()
 	b.bufferFuture = ropts.BufferFuture()
-	b.outOfOrderWritesEnabled = opts.RetentionOptions().OutOfOrderWritesEnabled()
 }
 
 func (b *dbBuffer) Write(
@@ -164,12 +161,7 @@ func (b *dbBuffer) Write(
 	unit xtime.Unit,
 	annotation []byte,
 ) error {
-	// TODO(juchan): good enough to just pass in `now` here as opposed to passing it
-	// from the beginning of the chain?
-	isRealtime, mType := b.isRealtime(b.nowFn(), timestamp)
-	if !b.outOfOrderWritesEnabled && !isRealtime {
-		return m3dberrors.ErrOutOfOrderWriteTimeNotEnabled
-	}
+	mType := b.isRealtime(b.nowFn(), timestamp)
 
 	blockStart := timestamp.Truncate(b.blockSize)
 	bucket, ok := b.bucketAt(blockStart)
@@ -425,16 +417,16 @@ func (b *dbBuffer) removeBucketAt(blockStart time.Time) {
 	delete(b.buckets, tNano)
 }
 
-func (b *dbBuffer) isRealtime(now time.Time, timestamp time.Time) (bool, metricType) {
+func (b *dbBuffer) isRealtime(now time.Time, timestamp time.Time) metricType {
 	futureLimit := now.Add(1 * b.bufferFuture)
 	pastLimit := now.Add(-1 * b.bufferPast)
 	isRealtime := pastLimit.Before(timestamp) && futureLimit.After(timestamp)
 
 	if isRealtime {
-		return isRealtime, realtimeType
+		return realtimeType
 	}
 
-	return isRealtime, outOfOrderType
+	return outOfOrderType
 }
 
 func (b *dbBuffer) Flush(

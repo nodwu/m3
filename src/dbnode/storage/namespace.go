@@ -36,6 +36,7 @@ import (
 	"github.com/m3db/m3/src/dbnode/storage/block"
 	"github.com/m3db/m3/src/dbnode/storage/bootstrap"
 	"github.com/m3db/m3/src/dbnode/storage/bootstrap/result"
+	m3dberrors "github.com/m3db/m3/src/dbnode/storage/errors"
 	"github.com/m3db/m3/src/dbnode/storage/index"
 	"github.com/m3db/m3/src/dbnode/storage/namespace"
 	"github.com/m3db/m3/src/dbnode/storage/series"
@@ -556,6 +557,12 @@ func (n *dbNamespace) Write(
 	annotation []byte,
 ) error {
 	callStart := n.nowFn()
+	if !n.Options().RetentionOptions().OutOfOrderWritesEnabled() &&
+		!n.isRealtime(callStart, timestamp) {
+		n.metrics.write.ReportError(n.nowFn().Sub(callStart))
+		return m3dberrors.ErrOutOfOrderWriteTimeNotEnabled
+	}
+
 	shard, err := n.shardFor(id)
 	if err != nil {
 		n.metrics.write.ReportError(n.nowFn().Sub(callStart))
@@ -564,6 +571,13 @@ func (n *dbNamespace) Write(
 	err = shard.Write(ctx, id, timestamp, value, unit, annotation)
 	n.metrics.write.ReportSuccessOrError(err, n.nowFn().Sub(callStart))
 	return err
+}
+
+func (n *dbNamespace) isRealtime(now time.Time, timestamp time.Time) bool {
+	ropts := n.Options().RetentionOptions()
+	futureLimit := now.Add(1 * ropts.BufferFuture())
+	pastLimit := now.Add(-1 * ropts.BufferPast())
+	return pastLimit.Before(timestamp) && futureLimit.After(timestamp)
 }
 
 func (n *dbNamespace) WriteTagged(
