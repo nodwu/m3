@@ -1016,7 +1016,7 @@ func (mr *MockdatabaseNamespaceMockRecorder) Bootstrap(start, process interface{
 }
 
 // Flush mocks base method
-func (m *MockdatabaseNamespace) Flush(blockStart time.Time, ShardBootstrapStates ShardBootstrapStates, flush persist.DataFlush) error {
+func (m *MockdatabaseNamespace) Flush(blockStart time.Time, ShardBootstrapStates ShardBootstrapStates, flush persist.FlushPreparer) error {
 	ret := m.ctrl.Call(m, "Flush", blockStart, ShardBootstrapStates, flush)
 	ret0, _ := ret[0].(error)
 	return ret0
@@ -1040,15 +1040,15 @@ func (mr *MockdatabaseNamespaceMockRecorder) FlushIndex(flush interface{}) *gomo
 }
 
 // Snapshot mocks base method
-func (m *MockdatabaseNamespace) Snapshot(blockStart, snapshotTime time.Time, shardBootstrapStatesAtTickStart ShardBootstrapStates, flush persist.DataFlush) error {
-	ret := m.ctrl.Call(m, "Snapshot", blockStart, snapshotTime, shardBootstrapStatesAtTickStart, flush)
+func (m *MockdatabaseNamespace) Snapshot(blockStart, snapshotTime time.Time, flush persist.SnapshotPreparer) error {
+	ret := m.ctrl.Call(m, "Snapshot", blockStart, snapshotTime, flush)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Snapshot indicates an expected call of Snapshot
-func (mr *MockdatabaseNamespaceMockRecorder) Snapshot(blockStart, snapshotTime, shardBootstrapStatesAtTickStart, flush interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Snapshot", reflect.TypeOf((*MockdatabaseNamespace)(nil).Snapshot), blockStart, snapshotTime, shardBootstrapStatesAtTickStart, flush)
+func (mr *MockdatabaseNamespaceMockRecorder) Snapshot(blockStart, snapshotTime, flush interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Snapshot", reflect.TypeOf((*MockdatabaseNamespace)(nil).Snapshot), blockStart, snapshotTime, flush)
 }
 
 // NeedsFlush mocks base method
@@ -1369,7 +1369,7 @@ func (mr *MockdatabaseShardMockRecorder) Bootstrap(bootstrappedSeries interface{
 }
 
 // Flush mocks base method
-func (m *MockdatabaseShard) Flush(blockStart time.Time, flush persist.DataFlush) error {
+func (m *MockdatabaseShard) Flush(blockStart time.Time, flush persist.FlushPreparer) error {
 	ret := m.ctrl.Call(m, "Flush", blockStart, flush)
 	ret0, _ := ret[0].(error)
 	return ret0
@@ -1381,7 +1381,7 @@ func (mr *MockdatabaseShardMockRecorder) Flush(blockStart, flush interface{}) *g
 }
 
 // Snapshot mocks base method
-func (m *MockdatabaseShard) Snapshot(blockStart, snapshotStart time.Time, flush persist.DataFlush) error {
+func (m *MockdatabaseShard) Snapshot(blockStart, snapshotStart time.Time, flush persist.SnapshotPreparer) error {
 	ret := m.ctrl.Call(m, "Snapshot", blockStart, snapshotStart, flush)
 	ret0, _ := ret[0].(error)
 	return ret0
