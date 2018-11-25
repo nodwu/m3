@@ -263,6 +263,18 @@ func (mr *MockBlockMockRecorder) StartTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTime", reflect.TypeOf((*MockBlock)(nil).StartTime))
 }
 
+// Stats mocks base method
+func (m *MockBlock) Stats(arg0 BlockStatsReporter) error {
+	ret := m.ctrl.Call(m, "Stats", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Stats indicates an expected call of Stats
+func (mr *MockBlockMockRecorder) Stats(arg0 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stats", reflect.TypeOf((*MockBlock)(nil).Stats), arg0)
+}
+
 // Tick mocks base method
 func (m *MockBlock) Tick(arg0 context.Cancellable, arg1 time.Time) (BlockTickResult, error) {
 	ret := m.ctrl.Call(m, "Tick", arg0, arg1)
