@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -66,6 +67,7 @@ var (
 
 const (
 	defaultFlushReadDataBlocksBatchSize = int64(4096)
+	nsIndexReportStatsInterval          = 10 * time.Second
 )
 
 // nolint: maligned
@@ -96,6 +98,7 @@ type nsIndexState struct {
 	sync.RWMutex // NB: guards all variables in this struct
 
 	closed         bool
+	closeCh        chan struct{}
 	bootstrapState BootstrapState
 	runtimeOpts    nsIndexRuntimeOptions
 
@@ -208,6 +211,7 @@ func newNamespaceIndexWithOptions(
 	nowFn := indexOpts.ClockOptions().NowFn()
 	idx := &nsIndex{
 		state: nsIndexState{
+			closeCh: make(chan struct{}),
 			runtimeOpts: nsIndexRuntimeOptions{
 				insertMode:            indexOpts.InsertMode(), // FOLLOWUP(prateek): wire to allow this to be tweaked at runtime
 				flushBlockNumSegments: runtime.DefaultFlushIndexBlockNumSegments,
@@ -229,7 +233,7 @@ func newNamespaceIndexWithOptions(
 		logger:     indexOpts.InstrumentOptions().Logger(),
 		nsMetadata: nsMD,
 
-		metrics: newNamespaceIndexMetrics(instrumentOpts),
+		metrics: newNamespaceIndexMetrics(indexOpts, instrumentOpts),
 	}
 	if runtimeOptsMgr != nil {
 		idx.runtimeOptsListener = runtimeOptsMgr.RegisterListener(idx)
@@ -245,10 +249,14 @@ func newNamespaceIndexWithOptions(
 	// allocate the current block to ensure we're able to index as soon as we return
 	currentBlock := nowFn().Truncate(idx.blockSize)
 	idx.state.RLock()
-	defer idx.state.RUnlock()
-	if _, err := idx.ensureBlockPresentWithRLock(currentBlock); err != nil {
+	_, err := idx.ensureBlockPresentWithRLock(currentBlock)
+	idx.state.RUnlock()
+	if err != nil {
 		return nil, err
 	}
+
+	// Report stats
+	go idx.reportStatsUntilClosed()
 
 	return idx, nil
 }
@@ -257,6 +265,68 @@ func (i *nsIndex) SetRuntimeOptions(value runtime.Options) {
 	i.state.Lock()
 	i.state.runtimeOpts.flushBlockNumSegments = value.FlushIndexBlockNumSegments()
 	i.state.Unlock()
+}
+
+func (i *nsIndex) reportStatsUntilClosed() {
+	ticker := time.NewTicker(nsIndexReportStatsInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err := i.reportStats()
+			if err != nil {
+				i.logger.Warnf("could not report index stats: %v", err)
+			}
+		case <-i.state.closeCh:
+			return
+		}
+	}
+}
+
+func (i *nsIndex) reportStats() error {
+	i.state.RLock()
+	defer i.state.RUnlock()
+
+	levels := i.metrics.BlockMetrics.ActiveSegmentLevelsMetrics
+	levelValues := make([]struct {
+		numSegments  int64
+		numTotalDocs int64
+	}, len(levels))
+
+	// iterate known blocks in a defined order of time (newest first)
+	// for debug log ordering
+	for _, start := range i.state.blockStartsDescOrder {
+		block, ok := i.state.blocksByTime[start]
+		if !ok {
+			return i.missingBlockInvariantError(start)
+		}
+
+		err := block.Stats(
+			index.BlockStatsReporterFn(func(s index.BlockSegmentStats) {
+				for i, l := range levels {
+					contained := s.Size >= l.MinSizeInclusive && s.Size < l.MaxSizeExclusive
+					if !contained {
+						continue
+					}
+
+					levelValues[i].numSegments++
+					levelValues[i].numTotalDocs += s.Size
+					l.SegmentsAge.Record(s.Age)
+					break
+				}
+			}))
+		if err != nil {
+			return err
+		}
+	}
+
+	for i, v := range levelValues {
+		levels[i].NumSegments.Update(float64(v.numSegments))
+		levels[i].NumTotalDocs.Update(float64(v.numTotalDocs))
+	}
+
+	return nil
 }
 
 func (i *nsIndex) BlockStartForWriteTime(writeTime time.Time) xtime.UnixNano {
@@ -948,6 +1018,7 @@ func (i *nsIndex) Close() error {
 		return errDbIndexAlreadyClosed
 	}
 	i.state.closed = true
+	close(i.state.closeCh)
 
 	var multiErr xerrors.MultiError
 	multiErr = multiErr.Add(i.state.insertQueue.Stop())
@@ -991,12 +1062,15 @@ type nsIndexMetrics struct {
 	QueryAfterClose             tally.Counter
 	InsertEndToEndLatency       tally.Timer
 	FlushEvictedMutableSegments tally.Counter
+	BlockMetrics                nsIndexBlocksMetrics
 }
 
 func newNamespaceIndexMetrics(
+	opts index.Options,
 	iopts instrument.Options,
 ) nsIndexMetrics {
 	scope := iopts.MetricsScope()
+	blocksScope := scope.SubScope("blocks")
 	return nsIndexMetrics{
 		AsyncInsertErrors: scope.Tagged(map[string]string{
 			"error_type": "async-insert",
@@ -1011,6 +1085,46 @@ func newNamespaceIndexMetrics(
 			scope.Timer("insert-end-to-end-latency"),
 			iopts.MetricsSamplingRate()),
 		FlushEvictedMutableSegments: scope.Counter("mutable-segment-evicted"),
+		BlockMetrics:                newNamespaceIndexBlocksMetrics(opts, blocksScope),
+	}
+}
+
+type nsIndexBlocksMetrics struct {
+	ActiveSegmentLevelsMetrics []nsIndexBlocksSegmentLevelMetrics
+}
+
+type nsIndexBlocksSegmentLevelMetrics struct {
+	MinSizeInclusive int64
+	MaxSizeExclusive int64
+	NumSegments      tally.Gauge
+	NumTotalDocs     tally.Gauge
+	SegmentsAge      tally.Timer
+}
+
+func newNamespaceIndexBlocksMetrics(
+	opts index.Options,
+	scope tally.Scope,
+) nsIndexBlocksMetrics {
+	segmentLevelsScope := scope.SubScope("segment-levels")
+
+	compactionLevels := opts.CompactionPlannerOptions().Levels
+	levels := make([]nsIndexBlocksSegmentLevelMetrics, 0, len(compactionLevels))
+	for _, level := range compactionLevels {
+		subScope := segmentLevelsScope.Tagged(map[string]string{
+			"level_min_size": strconv.Itoa(int(level.MinSizeInclusive)),
+			"level_max_size": strconv.Itoa(int(level.MaxSizeExclusive)),
+		})
+		levels = append(levels, nsIndexBlocksSegmentLevelMetrics{
+			MinSizeInclusive: level.MinSizeInclusive,
+			MaxSizeExclusive: level.MaxSizeExclusive,
+			NumSegments:      subScope.Gauge("num-segments"),
+			NumTotalDocs:     subScope.Gauge("num-total-docs"),
+			SegmentsAge:      subScope.Timer("segments-age"),
+		})
+	}
+
+	return nsIndexBlocksMetrics{
+		ActiveSegmentLevelsMetrics: levels,
 	}
 }
 
