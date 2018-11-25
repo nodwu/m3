@@ -316,6 +316,10 @@ func (i *nsIndex) reportStats() error {
 					break
 				}
 			}))
+		if err == index.ErrUnableReportStatsBlockClosed {
+			// Closed blocks are temporarily in the list still
+			continue
+		}
 		if err != nil {
 			return err
 		}
